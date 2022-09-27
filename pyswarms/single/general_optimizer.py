@@ -65,11 +65,11 @@ import multiprocessing as mp
 
 from collections import deque
 
-from ..backend.operators import compute_pbest, compute_objective_function
-from ..backend.topology import Topology
-from ..backend.handlers import BoundaryHandler, VelocityHandler, OptionsHandler
-from ..base import SwarmOptimizer
-from ..utils.reporter import Reporter
+from ..backend.operators import compute_pbest, compute_objective_function         # cập nhật thông tin
+from ..backend.topology import Topology                                           # cấu trúc liên kết
+from ..backend.handlers import BoundaryHandler, VelocityHandler, OptionsHandler   # Xử lý cho các hệ số gia tốc thay đổi vị trí, vận tốc và thời gian của các hạt.
+from ..base import SwarmOptimizer                                                 # Khởi tạo bày đàn
+from ..utils.reporter import Reporter                                             # báo cáo lịch sử
 
 
 class GeneralOptimizerPSO(SwarmOptimizer):
@@ -192,6 +192,12 @@ class GeneralOptimizerPSO(SwarmOptimizer):
         self.bh = BoundaryHandler(strategy=bh_strategy)
         self.vh = VelocityHandler(strategy=vh_strategy)
         self.oh = OptionsHandler(strategy=oh_strategy)
+        self.best_cost_history=[]                    #khởi tạo 2 biến lưu giá trị nhật ký
+        self.best_pos_history=[]
+        self.best_velocity_history=[]
+        # self.best_position_history=[]
+        self.best_history=[]
+        
         self.name = __name__
 
     def optimize(
@@ -246,7 +252,9 @@ class GeneralOptimizerPSO(SwarmOptimizer):
             # fmt: off
             self.swarm.current_cost = compute_objective_function(self.swarm, objective_func, pool=pool, **kwargs)
             self.swarm.pbest_pos, self.swarm.pbest_cost = compute_pbest(self.swarm)
-            best_cost_yet_found = self.swarm.best_cost
+            best_cost_yet_found = self.swarm.best_cost       # chi phí tốt nhất
+            self.best_cost_history.append(self.swarm.pbest_cost)             #hàm lưu các giá trị nhật ký
+            self.best_pos_history.append(self.swarm.pbest_pos)
             # fmt: on
             # Update swarm
             self.swarm.best_pos, self.swarm.best_cost = self.top.compute_gbest(
@@ -257,12 +265,13 @@ class GeneralOptimizerPSO(SwarmOptimizer):
                 self.rep.hook(best_cost=self.swarm.best_cost)
             hist = self.ToHistory(
                 best_cost=self.swarm.best_cost,
-                mean_pbest_cost=np.mean(self.swarm.pbest_cost),
+                mean_pbest_cost=np.mean(self.swarm.pbest_cost),   # lấy trung bình cộng
                 mean_neighbor_cost=self.swarm.best_cost,
                 position=self.swarm.position,
                 velocity=self.swarm.velocity,
             )
             self._populate_history(hist)
+            mean_pbest_cost=np.mean(self.swarm.pbest_cost),
             # Verify stop criteria based on the relative acceptable cost ftol
             relative_measure = self.ftol * (1 + np.abs(best_cost_yet_found))
             delta = (
@@ -286,19 +295,22 @@ class GeneralOptimizerPSO(SwarmOptimizer):
             self.swarm.position = self.top.compute_position(
                 self.swarm, self.bounds, self.bh
             )
+        self.best_velocity_history.append(self.swarm.velocity) # lịch sử vận tốc 
+        # self.best_position_history.append(self.swarm.position)
+        self.best_history.append(hist) # lịch sử tất cả
         # Obtain the final best_cost and the final best_position
         final_best_cost = self.swarm.best_cost.copy()
         final_best_pos = self.swarm.pbest_pos[
-            self.swarm.pbest_cost.argmin()
+        self.swarm.pbest_cost.argmin()
         ].copy()
         # Write report in log and return final cost and position
         self.rep.log(
-            "Optimization finished | best cost: {}, best pos: {}".format(
-                final_best_cost, final_best_pos
+            "Optimization1 finished | best cost: {}, best pos: {}, best cost history: {}, best pos history: {} , best velocity history {} , historyAll {}".format(
+                final_best_cost, final_best_pos, self.best_cost_history, self.best_pos_history ,  self.best_velocity_history , self.best_history , 
             ),
             lvl=log_level,
         )
         # Close Pool of Processes
         if n_processes is not None:
             pool.close()
-        return (final_best_cost, final_best_pos)
+        return (final_best_cost, final_best_pos,  self.best_pos_history, self.best_cost_history, self.best_velocity_history,  self.best_history)
